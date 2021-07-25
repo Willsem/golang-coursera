@@ -1,9 +1,10 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"regexp"
 
@@ -150,15 +151,20 @@ func FastSearch(out io.Writer) {
 		panic(err)
 	}
 
-	seenBrowsers := make(map[string]bool, maxUsers)
-	uniqueBrowsers := 0
+	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	fileContents, err := ioutil.ReadAll(file)
+	if err != nil {
+		panic(err)
+	}
+
+	lines := bytes.Split(fileContents, []byte{byte('\n')})
+	seenBrowsers := make(map[string]bool, maxUsers)
 
 	fmt.Fprintln(out, "found users:")
 	user := User{}
-	for i := 0; scanner.Scan(); i++ {
-		err := user.UnmarshalJSON([]byte(scanner.Text()))
+	for i, line := range lines {
+		err := user.UnmarshalJSON(line)
 		if err != nil {
 			panic(err)
 		}
@@ -182,18 +188,15 @@ func FastSearch(out io.Writer) {
 			if isMatch {
 				if _, seenBefore := seenBrowsers[browser]; !seenBefore {
 					seenBrowsers[browser] = true
-					uniqueBrowsers++
 				}
 			}
 		}
 
-		if !(isAndroid && isMSIE) {
-			continue
+		if isAndroid && isMSIE {
+			email := r.ReplaceAllString(user.Email, " [at] ")
+			fmt.Fprintln(out, fmt.Sprintf("[%d] %s <%s>", i, user.Name, email))
 		}
-
-		email := r.ReplaceAllString(user.Email, " [at] ")
-		fmt.Fprintln(out, fmt.Sprintf("[%d] %s <%s>", i, user.Name, email))
 	}
 
-	fmt.Fprintln(out, "\nTotal unique browsers", uniqueBrowsers)
+	fmt.Fprintln(out, "\nTotal unique browsers", len(seenBrowsers))
 }
