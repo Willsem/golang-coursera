@@ -135,9 +135,14 @@ func (v *User) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson9e1087fdDecodeGithubComWillsemGolangCourseraHw3BenchGenerate(l, v)
 }
 
+const (
+	maxUsers = 1000
+)
+
 var (
 	androidRegexp, _ = regexp.Compile("Android")
 	msieRegexp, _    = regexp.Compile("MSIE")
+	r, _             = regexp.Compile("@")
 )
 
 func FastSearch(out io.Writer) {
@@ -151,15 +156,14 @@ func FastSearch(out io.Writer) {
 		panic(err)
 	}
 
-	r := regexp.MustCompile("@")
-	seenBrowsers := make(map[string]bool)
+	seenBrowsers := make(map[string]bool, maxUsers)
 	uniqueBrowsers := 0
-	foundUsers := ""
+	foundUsers := make([]string, 0, maxUsers)
 
 	lines := strings.Split(string(fileContents), "\n")
 
+	user := User{}
 	for i, line := range lines {
-		user := User{}
 		err := user.UnmarshalJSON([]byte(line))
 		if err != nil {
 			panic(err)
@@ -194,9 +198,9 @@ func FastSearch(out io.Writer) {
 		}
 
 		email := r.ReplaceAllString(user.Email, " [at] ")
-		foundUsers += fmt.Sprintf("[%d] %s <%s>\n", i, user.Name, email)
+		foundUsers = append(foundUsers, fmt.Sprintf("[%d] %s <%s>\n", i, user.Name, email))
 	}
 
-	fmt.Fprintln(out, "found users:\n"+foundUsers)
+	fmt.Fprintln(out, "found users:\n"+strings.Join(foundUsers, ""))
 	fmt.Fprintln(out, "Total unique browsers", uniqueBrowsers)
 }
