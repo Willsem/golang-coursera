@@ -1,10 +1,9 @@
 package main
 
 import (
-	"bytes"
+	"bufio"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"regexp"
 
@@ -153,18 +152,14 @@ func FastSearch(out io.Writer) {
 
 	defer file.Close()
 
-	fileContents, err := ioutil.ReadAll(file)
-	if err != nil {
-		panic(err)
-	}
+	scanner := bufio.NewScanner(file)
 
-	lines := bytes.Split(fileContents, []byte{byte('\n')})
 	seenBrowsers := make(map[string]bool, maxUsers)
 
 	fmt.Fprintln(out, "found users:")
 	user := User{}
-	for i, line := range lines {
-		err := user.UnmarshalJSON(line)
+	for i := 0; scanner.Scan(); i++ {
+		err := user.UnmarshalJSON(scanner.Bytes())
 		if err != nil {
 			panic(err)
 		}
