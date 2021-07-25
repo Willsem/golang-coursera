@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"regexp"
-	"strings"
 
 	"github.com/mailru/easyjson/jlexer"
 	"github.com/mailru/easyjson/jwriter"
@@ -151,19 +150,12 @@ func FastSearch(out io.Writer) {
 		panic(err)
 	}
 
-	/*fileContents, err := ioutil.ReadAll(file)
-	if err != nil {
-		panic(err)
-	}*/
-
 	seenBrowsers := make(map[string]bool, maxUsers)
 	uniqueBrowsers := 0
-	foundUsers := make([]string, 0, maxUsers)
-
-	// lines := strings.Split(string(fileContents), "\n")
 
 	scanner := bufio.NewScanner(file)
 
+	fmt.Fprintln(out, "found users:")
 	user := User{}
 	for i := 0; scanner.Scan(); i++ {
 		err := user.UnmarshalJSON([]byte(scanner.Text()))
@@ -200,9 +192,8 @@ func FastSearch(out io.Writer) {
 		}
 
 		email := r.ReplaceAllString(user.Email, " [at] ")
-		foundUsers = append(foundUsers, fmt.Sprintf("[%d] %s <%s>\n", i, user.Name, email))
+		fmt.Fprintln(out, fmt.Sprintf("[%d] %s <%s>", i, user.Name, email))
 	}
 
-	fmt.Fprintln(out, "found users:\n"+strings.Join(foundUsers, ""))
-	fmt.Fprintln(out, "Total unique browsers", uniqueBrowsers)
+	fmt.Fprintln(out, "\nTotal unique browsers", uniqueBrowsers)
 }
