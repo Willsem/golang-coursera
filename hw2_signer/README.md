@@ -15,7 +15,7 @@ collected 12
 === RUN   TestPipeline
 --- PASS: TestPipeline (0.01s)
 === RUN   TestSigner
---- PASS: TestSigner (2.08s)
+--- PASS: TestSigner (2.09s)
 PASS
-ok  	_/Users/alex/Repositories/golang-coursera/hw2_signer	2.853s
+ok  	github.com/Willsem/golang-coursera/hw2_signer	2.448s
 ```
