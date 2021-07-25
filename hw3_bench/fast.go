@@ -152,56 +152,38 @@ func FastSearch(out io.Writer) {
 	}
 
 	r := regexp.MustCompile("@")
-	seenBrowsers := []string{}
+	seenBrowsers := make(map[string]bool)
 	uniqueBrowsers := 0
 	foundUsers := ""
 
 	lines := strings.Split(string(fileContents), "\n")
 
-	users := make([]User, 0)
-	for _, line := range lines {
+	for i, line := range lines {
 		user := User{}
 		err := user.UnmarshalJSON([]byte(line))
 		if err != nil {
 			panic(err)
 		}
-		users = append(users, user)
-	}
-
-	for i, user := range users {
 
 		isAndroid := false
 		isMSIE := false
 
 		for _, browser := range user.Browsers {
+			isMatch := false
+
 			if ok := androidRegexp.MatchString(browser); ok {
 				isAndroid = true
-				notSeenBefore := true
-				for _, item := range seenBrowsers {
-					if item == browser {
-						notSeenBefore = false
-					}
-				}
-				if notSeenBefore {
-					// log.Printf("SLOW New browser: %s, first seen: %s", browser, user["name"])
-					seenBrowsers = append(seenBrowsers, browser)
-					uniqueBrowsers++
-				}
+				isMatch = true
 			}
-		}
 
-		for _, browser := range user.Browsers {
 			if ok := msieRegexp.MatchString(browser); ok {
 				isMSIE = true
-				notSeenBefore := true
-				for _, item := range seenBrowsers {
-					if item == browser {
-						notSeenBefore = false
-					}
-				}
-				if notSeenBefore {
-					// log.Printf("SLOW New browser: %s, first seen: %s", browser, user["name"])
-					seenBrowsers = append(seenBrowsers, browser)
+				isMatch = true
+			}
+
+			if isMatch {
+				if _, seenBefore := seenBrowsers[browser]; !seenBefore {
+					seenBrowsers[browser] = true
 					uniqueBrowsers++
 				}
 			}
@@ -211,11 +193,10 @@ func FastSearch(out io.Writer) {
 			continue
 		}
 
-		// log.Println("Android and MSIE user:", user["name"], user["email"])
 		email := r.ReplaceAllString(user.Email, " [at] ")
 		foundUsers += fmt.Sprintf("[%d] %s <%s>\n", i, user.Name, email)
 	}
 
 	fmt.Fprintln(out, "found users:\n"+foundUsers)
-	fmt.Fprintln(out, "Total unique browsers", len(seenBrowsers))
+	fmt.Fprintln(out, "Total unique browsers", uniqueBrowsers)
 }
