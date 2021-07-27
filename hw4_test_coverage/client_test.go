@@ -1,15 +1,36 @@
 package main
 
 import (
+	"encoding/json"
+	"encoding/xml"
+	"fmt"
+	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
 
+type Content struct {
+	XMLName xml.Name `xml:"root"`
+	Users   []Row    `xml:"row"`
+}
+
+type Row struct {
+	Id     int    `xml:"id"`
+	Name   string `xml:"first_name"`
+	Age    int    `xml:"age"`
+	About  string `xml:"about"`
+	Gender string `xml:"gender"`
+}
+
 const (
 	AccessToken = "authorized token"
+	dataFile    = "dataset.xml"
 )
 
 var (
@@ -18,11 +39,40 @@ var (
 		Limit:  1,
 		Offset: 1,
 	}
+	content Content
 )
+
+func init() {
+	file, err := os.Open(dataFile)
+	if err != nil {
+		panic(err)
+	}
+
+	fileContents, err := ioutil.ReadAll(file)
+	if err != nil {
+		panic(err)
+	}
+
+	err = xml.Unmarshal([]byte(fileContents), &content)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (r Row) convert() User {
+	return User{
+		Id:     r.Id,
+		Name:   r.Name,
+		Age:    r.Age,
+		About:  r.About,
+		Gender: r.Gender,
+	}
+}
 
 func SearchServer(w http.ResponseWriter, r *http.Request) {
 	defer func() {
-		if recover() != nil {
+		if err := recover(); err != nil {
+			fmt.Println(err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
 		}
 	}()
@@ -33,17 +83,61 @@ func SearchServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := r.GetBody()
+	limit, err := strconv.Atoi(r.FormValue("limit"))
 	if err != nil {
-		http.Error(w, "400 - bad body", http.StatusBadRequest)
+		http.Error(w, "400 - bad query", http.StatusBadRequest)
 		return
 	}
 
-	defer r.Body.Close()
+	offset, err := strconv.Atoi(r.FormValue("offset"))
+	if err != nil {
+		http.Error(w, "400 - bad query", http.StatusBadRequest)
+		return
+	}
+
+	var users []string
+	if limit > 25 {
+		limit = 25
+	}
+	if offset+limit > len(content.Users) {
+		limit = len(content.Users)
+	}
+	for i := offset; i < limit; i++ {
+		user := content.Users[i].convert()
+		u, err := json.Marshal(user)
+		if err != nil {
+			panic(err)
+		}
+		users = append(users, string(u))
+	}
+
+	w.WriteHeader(http.StatusOK)
+	io.WriteString(w, `[`+strings.Join(users, ",")+`]`)
 }
 
 func TestFindUsersOk(t *testing.T) {
-	//_ := ts.URL
+	srv := SearchClient{
+		URL:         ts.URL,
+		AccessToken: AccessToken,
+	}
+
+	cases := []SearchRequest{
+		{
+			Limit:  1,
+			Offset: 0,
+		},
+		{
+			Limit:  30,
+			Offset: 26,
+		},
+	}
+
+	for _, req := range cases {
+		_, err := srv.FindUsers(req)
+		if err != nil {
+			t.Error("unexpected error:", err)
+		}
+	}
 }
 
 func TestFindUsersErrorWithRequest(t *testing.T) {
