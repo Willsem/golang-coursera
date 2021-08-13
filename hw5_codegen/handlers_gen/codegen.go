@@ -120,7 +120,7 @@ func (api *{{.Receiver}}) wrapper{{.Name}}(w http.ResponseWriter, r *http.Reques
 	if r.Method != "{{ .Method }}" {
 		errorResponse(http.StatusNotAcceptable, "bad method", w)
 		return
-	}	
+	}
 	{{ end }}
 	{{ if .IsAuth }}
 	ok := isAuthenticated(r)
@@ -203,105 +203,6 @@ func (s *{{ .Name }}) fillFromForm(params url.Values) error {
 	}
 `))
 )
-
-func main() {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, os.Args[1], nil, parser.ParseComments)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	out, _ := os.Create(os.Args[2])
-
-	// Preprocess file
-	structures := map[string]ast.StructType{}
-	functions := []HttpFunction{}
-	for _, f := range file.Decls {
-		// processing structures
-		if g, ok := f.(*ast.GenDecl); ok {
-			for _, spec := range g.Specs {
-				if currType, ok := spec.(*ast.TypeSpec); ok {
-					if currStruct, ok := currType.Type.(*ast.StructType); ok {
-						structures[currType.Name.Name] = *currStruct
-					}
-				}
-			}
-		}
-
-		// processing functions
-		if fun, ok := f.(*ast.FuncDecl); ok {
-			if fun.Doc == nil || len(fun.Doc.List) == 0 {
-				continue
-			}
-			funcComment := fun.Doc.List[0].Text
-			if strings.HasPrefix(funcComment, "// apigen:api ") && fun.Recv != nil {
-				expr, _ := fun.Recv.List[0].Type.(*ast.StarExpr)
-				identReceiver, _ := expr.X.(*ast.Ident)
-				instructions := new(Instructions)
-				json.Unmarshal([]byte(strings.Replace(funcComment, "// apigen:api ", "", 1)), &instructions)
-				// fmt.Println(instructions)
-
-				identIn, _ := fun.Type.Params.List[1].Type.(*ast.Ident)
-				functions = append(functions, HttpFunction{
-					Receiver: identReceiver.Name,
-					In:       identIn.Name,
-					Path:     instructions.Url,
-					Auth:     instructions.Auth,
-					Method:   instructions.Method,
-					Name:     fun.Name.Name,
-				})
-			}
-		}
-	}
-
-	// Calculation
-	serveHttp := map[string][]HttpFunction{}
-	for _, fun := range functions {
-		if _, ok := serveHttp[fun.Receiver]; !ok {
-			serveHttp[fun.Receiver] = make([]HttpFunction, 0)
-		}
-		serveHttp[fun.Receiver] = append(serveHttp[fun.Receiver], fun)
-	}
-	processedParams := make(map[string]struct{}, 0)
-	paramsStructures := make([]ParamsStructure, 0)
-	for _, fun := range functions {
-		if _, ok := processedParams[fun.In]; ok {
-			continue
-		}
-		rawParam := structures[fun.In]
-		fields := make([]Field, 0)
-		for _, rawField := range rawParam.Fields.List {
-			t, _ := rawField.Type.(*ast.Ident)
-			field := Field{
-				FieldName: rawField.Names[0].Name,
-				ParamType: t.Name,
-				ParamName: strings.ToLower(rawField.Names[0].Name),
-			}
-			field.ParseApiValidator(rawField.Tag.Value)
-			fields = append(fields, field)
-		}
-
-		paramsStructures = append(paramsStructures, ParamsStructure{
-			Name:   fun.In,
-			Fields: fields,
-		})
-	}
-
-	// fmt.Printf("type: %T data: %+v\n", paramsStructures, paramsStructures)
-
-	// Generate
-	generalTpl.Execute(out, TemplateVariables{
-		General: map[string]string{
-			"JSONErrorTag":    "`json:\"error\"`",
-			"JSONResponseTag": "`json:\"response\"`",
-			"PackageName":     file.Name.Name,
-		},
-		ServeHTTP:        serveHttp,
-		ParamsStructures: paramsStructures,
-	})
-
-	fmt.Println("Completed")
-}
 
 type TemplateVariables struct {
 	General          map[string]string
@@ -428,4 +329,103 @@ func (f *Field) IsInt() bool {
 type ParamsStructure struct {
 	Name   string
 	Fields []Field
+}
+
+func main() {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, os.Args[1], nil, parser.ParseComments)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	out, _ := os.Create(os.Args[2])
+
+	// Preprocess file
+	structures := map[string]ast.StructType{}
+	functions := []HttpFunction{}
+	for _, f := range file.Decls {
+		// processing structures
+		if g, ok := f.(*ast.GenDecl); ok {
+			for _, spec := range g.Specs {
+				if currType, ok := spec.(*ast.TypeSpec); ok {
+					if currStruct, ok := currType.Type.(*ast.StructType); ok {
+						structures[currType.Name.Name] = *currStruct
+					}
+				}
+			}
+		}
+
+		// processing functions
+		if fun, ok := f.(*ast.FuncDecl); ok {
+			if fun.Doc == nil || len(fun.Doc.List) == 0 {
+				continue
+			}
+			funcComment := fun.Doc.List[0].Text
+			if strings.HasPrefix(funcComment, "// apigen:api ") && fun.Recv != nil {
+				expr, _ := fun.Recv.List[0].Type.(*ast.StarExpr)
+				identReceiver, _ := expr.X.(*ast.Ident)
+				instructions := new(Instructions)
+				json.Unmarshal([]byte(strings.Replace(funcComment, "// apigen:api ", "", 1)), &instructions)
+				// fmt.Println(instructions)
+
+				identIn, _ := fun.Type.Params.List[1].Type.(*ast.Ident)
+				functions = append(functions, HttpFunction{
+					Receiver: identReceiver.Name,
+					In:       identIn.Name,
+					Path:     instructions.Url,
+					Auth:     instructions.Auth,
+					Method:   instructions.Method,
+					Name:     fun.Name.Name,
+				})
+			}
+		}
+	}
+
+	// Calculation
+	serveHttp := map[string][]HttpFunction{}
+	for _, fun := range functions {
+		if _, ok := serveHttp[fun.Receiver]; !ok {
+			serveHttp[fun.Receiver] = make([]HttpFunction, 0)
+		}
+		serveHttp[fun.Receiver] = append(serveHttp[fun.Receiver], fun)
+	}
+	processedParams := make(map[string]struct{}, 0)
+	paramsStructures := make([]ParamsStructure, 0)
+	for _, fun := range functions {
+		if _, ok := processedParams[fun.In]; ok {
+			continue
+		}
+		rawParam := structures[fun.In]
+		fields := make([]Field, 0)
+		for _, rawField := range rawParam.Fields.List {
+			t, _ := rawField.Type.(*ast.Ident)
+			field := Field{
+				FieldName: rawField.Names[0].Name,
+				ParamType: t.Name,
+				ParamName: strings.ToLower(rawField.Names[0].Name),
+			}
+			field.ParseApiValidator(rawField.Tag.Value)
+			fields = append(fields, field)
+		}
+
+		paramsStructures = append(paramsStructures, ParamsStructure{
+			Name:   fun.In,
+			Fields: fields,
+		})
+	}
+
+	// fmt.Printf("type: %T data: %+v\n", paramsStructures, paramsStructures)
+
+	// Generate
+	generalTpl.Execute(out, TemplateVariables{
+		General: map[string]string{
+			"JSONErrorTag":    "`json:\"error\"`",
+			"JSONResponseTag": "`json:\"response\"`",
+			"PackageName":     file.Name.Name,
+		},
+		ServeHTTP:        serveHttp,
+		ParamsStructures: paramsStructures,
+	})
+
+	fmt.Println("Completed")
 }
