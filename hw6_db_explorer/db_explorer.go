@@ -2,8 +2,16 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
+)
+
+const (
+	DEFAULT_LIMIT  = 5
+	DEFAULT_OFFSET = 0
 )
 
 var (
@@ -11,12 +19,79 @@ var (
 	tableWithIdRegexp = regexp.MustCompile(`^\/[^\/]+\/.+`)
 )
 
+type column struct {
+	name     string
+	datatype string
+	nullable bool
+}
+
+type table struct {
+	name    string
+	columns []column
+}
+
 type DbExplorer struct {
-	db *sql.DB
+	db     *sql.DB
+	tables []table
 }
 
 func NewDbExplorer(db *sql.DB) (DbExplorer, error) {
-	return DbExplorer{db: db}, nil
+	rows, err := db.Query("show tables")
+	if err != nil {
+		return DbExplorer{}, err
+	}
+
+	defer rows.Close()
+
+	tables := make([]table, 0)
+
+	for rows.Next() {
+		var nameTable string
+		err = rows.Scan(&nameTable)
+		if err != nil {
+			return DbExplorer{}, err
+		}
+
+		table := table{
+			name:    nameTable,
+			columns: make([]column, 0),
+		}
+
+		col, err := db.Query("show columns from " + table.name)
+		if err != nil {
+			return DbExplorer{}, err
+		}
+
+		for col.Next() {
+			column := column{}
+			var nullable string
+			var key string
+			var def string
+			var ext string
+
+			col.Scan(&column.name, &column.datatype, &nullable, &key, &def, &ext)
+			if nullable == "YES" {
+				column.nullable = true
+			} else {
+				column.nullable = false
+			}
+
+			if strings.Contains(column.datatype, "varchar") || column.datatype == "text" {
+				column.datatype = "string"
+			}
+
+			table.columns = append(table.columns, column)
+		}
+
+		col.Close()
+	}
+
+	fmt.Println(tables)
+
+	return DbExplorer{
+		db:     db,
+		tables: tables,
+	}, nil
 }
 
 func (explorer DbExplorer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +115,13 @@ func (explorer DbExplorer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // GET /
 func (explorer DbExplorer) getTables(w http.ResponseWriter, r *http.Request) {
+	result, err := json.Marshal(explorer.tables)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Write(result)
 }
 
 // GET /$table?limit=5&offset=7
