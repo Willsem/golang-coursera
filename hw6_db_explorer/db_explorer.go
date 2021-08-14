@@ -3,9 +3,9 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -27,12 +27,13 @@ type column struct {
 
 type table struct {
 	name    string
+	idName  string
 	columns []column
 }
 
 type DbExplorer struct {
 	db     *sql.DB
-	tables []table
+	tables map[string]table
 }
 
 func NewDbExplorer(db *sql.DB) (DbExplorer, error) {
@@ -43,7 +44,7 @@ func NewDbExplorer(db *sql.DB) (DbExplorer, error) {
 
 	defer rows.Close()
 
-	tables := make([]table, 0)
+	tables := make(map[string]table, 0)
 
 	for rows.Next() {
 		var nameTable string
@@ -80,13 +81,17 @@ func NewDbExplorer(db *sql.DB) (DbExplorer, error) {
 				column.datatype = "string"
 			}
 
+			if key == "PRI" {
+				table.idName = column.name
+			}
+
 			table.columns = append(table.columns, column)
 		}
 
+		tables[table.name] = table
+
 		col.Close()
 	}
-
-	fmt.Println(tables)
 
 	return DbExplorer{
 		db:     db,
@@ -115,7 +120,12 @@ func (explorer DbExplorer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // GET /
 func (explorer DbExplorer) getTables(w http.ResponseWriter, r *http.Request) {
-	result, err := json.Marshal(explorer.tables)
+	tables := make([]string, 0, len(explorer.tables))
+	for k := range explorer.tables {
+		tables = append(tables, k)
+	}
+
+	result, err := json.Marshal(tables)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -126,10 +136,44 @@ func (explorer DbExplorer) getTables(w http.ResponseWriter, r *http.Request) {
 
 // GET /$table?limit=5&offset=7
 func (explorer DbExplorer) getRowsFromTable(w http.ResponseWriter, r *http.Request) {
+	table := r.URL.Path[1:]
+
+	limit, err := getIntQueryParam(r, "limit", DEFAULT_LIMIT)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	offset, err := getIntQueryParam(r, "offset", DEFAULT_OFFSET)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows, err := explorer.db.Query("select * from "+table+" limit ? offset ?", limit, offset)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	explorer.sendRowsData(w, table, rows)
 }
 
 // GET /$table/$id
 func (explorer DbExplorer) getRowFromTable(w http.ResponseWriter, r *http.Request) {
+	params := strings.Split(r.URL.Path, "/")
+	table := params[1]
+	id := params[2]
+
+	rows, err := explorer.db.Query("select * from "+table+" where "+explorer.tables[table].idName+" = ?", id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	explorer.sendRowsData(w, table, rows)
 }
 
 // PUT /$table
@@ -142,4 +186,66 @@ func (explorer DbExplorer) postRowInTable(w http.ResponseWriter, r *http.Request
 
 // DELETE /$table/$id
 func (explorer DbExplorer) deleteRowFromTable(w http.ResponseWriter, r *http.Request) {
+}
+
+func getIntQueryParam(r *http.Request, param string, defaultValue int) (result int, err error) {
+	value := r.URL.Query().Get(param)
+
+	if value == "" {
+		result = defaultValue
+	} else {
+		result, err = strconv.Atoi(value)
+	}
+
+	return
+}
+
+func (explorer DbExplorer) sendRowsData(w http.ResponseWriter, table string, rows *sql.Rows) {
+	countColumns := len(explorer.tables[table].columns)
+	row := make([]interface{}, countColumns)
+	rowPtr := make([]interface{}, countColumns)
+	for i := range row {
+		rowPtr[i] = &row[i]
+	}
+
+	result := make([]map[string]interface{}, 0)
+
+	for rows.Next() {
+		rows.Scan(rowPtr...)
+		result = append(result, explorer.readColumns(table, row))
+	}
+
+	if len(result) == 0 {
+		http.Error(w, "not found in database", http.StatusNotFound)
+		return
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Write(data)
+}
+
+func (explorer DbExplorer) readColumns(table string, row []interface{}) map[string]interface{} {
+	cols := make(map[string]interface{}, 0)
+
+	for i := range row {
+		datatype := explorer.tables[table].columns[i].datatype
+		colname := explorer.tables[table].columns[i].name
+		if row[i] != nil {
+			if datatype == "int" {
+				cols[colname] = row[i].(int64)
+			} else if datatype == "float" {
+				cols[colname] = row[i].(float64)
+			} else if datatype == "string" {
+				cols[colname] = string(row[i].([]uint8))
+			}
+		}
+
+	}
+
+	return cols
 }
