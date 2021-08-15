@@ -143,12 +143,7 @@ func (explorer DbExplorer) getTables(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	result, err := json.Marshal(response)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
+	result, _ := json.Marshal(response)
 	w.Write(result)
 }
 
@@ -189,12 +184,7 @@ func (explorer DbExplorer) getRowsFromTable(w http.ResponseWriter, r *http.Reque
 		},
 	}
 
-	data, err := json.Marshal(response)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
+	data, _ := json.Marshal(response)
 	w.Write(data)
 }
 
@@ -224,12 +214,7 @@ func (explorer DbExplorer) getRowFromTable(w http.ResponseWriter, r *http.Reques
 		},
 	}
 
-	data, err := json.Marshal(response)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
+	data, _ := json.Marshal(response)
 	w.Write(data)
 }
 
@@ -243,6 +228,34 @@ func (explorer DbExplorer) postRowInTable(w http.ResponseWriter, r *http.Request
 
 // DELETE /$table/$id
 func (explorer DbExplorer) deleteRowFromTable(w http.ResponseWriter, r *http.Request) {
+	params := strings.Split(r.URL.Path, "/")
+	table := params[1]
+	id := params[2]
+
+	result, err := explorer.db.Exec(
+		"delete from "+table+" where "+explorer.tables[table].idName+" = ?",
+		id,
+	)
+	if err != nil {
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
+		http.Error(w, string(errorMessage), http.StatusInternalServerError)
+		return
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
+		http.Error(w, string(errorMessage), http.StatusInternalServerError)
+		return
+	}
+
+	response := Response{
+		Response: map[string]interface{}{
+			"deleted": affected,
+		},
+	}
+	data, _ := json.Marshal(response)
+	w.Write(data)
 }
 
 func getIntQueryParam(r *http.Request, param string, defaultValue int) (result int, err error) {
