@@ -3,6 +3,8 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -220,10 +222,20 @@ func (explorer DbExplorer) getRowFromTable(w http.ResponseWriter, r *http.Reques
 
 // PUT /$table
 func (explorer DbExplorer) putRowToTable(w http.ResponseWriter, r *http.Request) {
+	body, err := explorer.parseBody(r)
+	if err != nil {
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
+		http.Error(w, string(errorMessage), http.StatusBadRequest)
+	}
 }
 
 // POST /$table/$id
 func (explorer DbExplorer) postRowInTable(w http.ResponseWriter, r *http.Request) {
+	body, err := explorer.parseBody(r)
+	if err != nil {
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
+		http.Error(w, string(errorMessage), http.StatusBadRequest)
+	}
 }
 
 // DELETE /$table/$id
@@ -305,15 +317,74 @@ func (explorer DbExplorer) readColumns(table string, row []interface{}) map[stri
 		if row[i] == nil {
 			cols[colname] = nil
 		} else {
-			if datatype == "int" {
+			switch datatype {
+			case "int":
 				cols[colname] = row[i].(int64)
-			} else if datatype == "float" {
+			case "float":
 				cols[colname] = row[i].(float64)
-			} else if datatype == "string" {
+			case "string":
 				cols[colname] = string(row[i].([]uint8))
 			}
 		}
 	}
 
 	return cols
+}
+
+func (explorer DbExplorer) parseBody(r *http.Request) (map[string]interface{}, error) {
+	body, err := getBodyFromRequest(r)
+	if err != nil {
+		return nil, err
+	}
+
+	table := strings.Split(r.URL.Path, "/")[1]
+	fields := explorer.tables[table].columns
+
+	for key, value := range body {
+		for _, col := range fields {
+			if key == col.name {
+				var ok bool
+				switch col.datatype {
+				case "int":
+					body[key], ok = value.(int64)
+				case "float":
+					body[key], ok = value.(float64)
+				case "string":
+					body[key], ok = value.([]uint8)
+				}
+
+				if !ok {
+					return nil, fmt.Errorf("field " + key + " have invalid type")
+				}
+			}
+		}
+	}
+
+	if r.Method == "POST" {
+		if _, ok := body[explorer.tables[table].idName]; ok {
+			return nil, fmt.Errorf("field " + explorer.tables[table].idName + " have invalid type")
+		}
+	}
+
+	if r.Method == "PUT" {
+		delete(body, explorer.tables[table].idName)
+	}
+
+	return body, nil
+}
+
+func getBodyFromRequest(r *http.Request) (map[string]interface{}, error) {
+	b, err := ioutil.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	var body map[string]interface{}
+	err = json.Unmarshal(b, &body)
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
 }
