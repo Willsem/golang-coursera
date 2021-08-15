@@ -42,9 +42,7 @@ func NewDbExplorer(db *sql.DB) (DbExplorer, error) {
 		return DbExplorer{}, err
 	}
 
-	defer rows.Close()
-
-	tables := make(map[string]table, 0)
+	tables := make(map[string]table)
 
 	for rows.Next() {
 		var nameTable string
@@ -53,15 +51,21 @@ func NewDbExplorer(db *sql.DB) (DbExplorer, error) {
 			return DbExplorer{}, err
 		}
 
-		table := table{
+		tables[nameTable] = table{
 			name:    nameTable,
 			columns: make([]column, 0),
 		}
+	}
 
-		col, err := db.Query("show columns from " + table.name)
+	rows.Close()
+
+	for nameTable := range tables {
+		col, err := db.Query("show columns from " + nameTable)
 		if err != nil {
 			return DbExplorer{}, err
 		}
+
+		table := tables[nameTable]
 
 		for col.Next() {
 			column := column{}
@@ -88,7 +92,7 @@ func NewDbExplorer(db *sql.DB) (DbExplorer, error) {
 			table.columns = append(table.columns, column)
 		}
 
-		tables[table.name] = table
+		tables[nameTable] = table
 
 		col.Close()
 	}
@@ -230,7 +234,7 @@ func (explorer DbExplorer) sendRowsData(w http.ResponseWriter, table string, row
 }
 
 func (explorer DbExplorer) readColumns(table string, row []interface{}) map[string]interface{} {
-	cols := make(map[string]interface{}, 0)
+	cols := make(map[string]interface{})
 
 	for i := range row {
 		datatype := explorer.tables[table].columns[i].datatype
