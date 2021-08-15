@@ -19,6 +19,14 @@ var (
 	tableWithIdRegexp = regexp.MustCompile(`^\/[^\/]+\/.+`)
 )
 
+type Response struct {
+	Response map[string]interface{} `json:"response"`
+}
+
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
 type column struct {
 	name     string
 	datatype string
@@ -129,7 +137,13 @@ func (explorer DbExplorer) getTables(w http.ResponseWriter, r *http.Request) {
 		tables = append(tables, k)
 	}
 
-	result, err := json.Marshal(tables)
+	response := Response{
+		Response: map[string]interface{}{
+			"tables": tables,
+		},
+	}
+
+	result, err := json.Marshal(response)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -156,12 +170,32 @@ func (explorer DbExplorer) getRowsFromTable(w http.ResponseWriter, r *http.Reque
 
 	rows, err := explorer.db.Query("select * from "+table+" limit ? offset ?", limit, offset)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: "unknown table"})
+		http.Error(w, string(errorMessage), http.StatusNotFound)
 		return
 	}
 	defer rows.Close()
 
-	explorer.sendRowsData(w, table, rows)
+	result := explorer.getRowsData(table, rows, false)
+	if result == nil {
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: "records not found"})
+		http.Error(w, string(errorMessage), http.StatusNotFound)
+		return
+	}
+
+	response := Response{
+		Response: map[string]interface{}{
+			"records": result,
+		},
+	}
+
+	data, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Write(data)
 }
 
 // GET /$table/$id
@@ -172,12 +206,31 @@ func (explorer DbExplorer) getRowFromTable(w http.ResponseWriter, r *http.Reques
 
 	rows, err := explorer.db.Query("select * from "+table+" where "+explorer.tables[table].idName+" = ?", id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "null", http.StatusNotFound)
 		return
 	}
 	defer rows.Close()
 
-	explorer.sendRowsData(w, table, rows)
+	result := explorer.getRowsData(table, rows, true)
+	if result == nil {
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: "record not found"})
+		http.Error(w, string(errorMessage), http.StatusNotFound)
+		return
+	}
+
+	response := Response{
+		Response: map[string]interface{}{
+			"record": result,
+		},
+	}
+
+	data, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Write(data)
 }
 
 // PUT /$table
@@ -204,7 +257,7 @@ func getIntQueryParam(r *http.Request, param string, defaultValue int) (result i
 	return
 }
 
-func (explorer DbExplorer) sendRowsData(w http.ResponseWriter, table string, rows *sql.Rows) {
+func (explorer DbExplorer) getRowsData(table string, rows *sql.Rows, onlyOne bool) interface{} {
 	countColumns := len(explorer.tables[table].columns)
 	row := make([]interface{}, countColumns)
 	rowPtr := make([]interface{}, countColumns)
@@ -220,17 +273,14 @@ func (explorer DbExplorer) sendRowsData(w http.ResponseWriter, table string, row
 	}
 
 	if len(result) == 0 {
-		http.Error(w, "not found in database", http.StatusNotFound)
-		return
+		return nil
 	}
 
-	data, err := json.Marshal(result)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if onlyOne {
+		return result[0]
+	} else {
+		return result
 	}
-
-	w.Write(data)
 }
 
 func (explorer DbExplorer) readColumns(table string, row []interface{}) map[string]interface{} {
@@ -239,7 +289,9 @@ func (explorer DbExplorer) readColumns(table string, row []interface{}) map[stri
 	for i := range row {
 		datatype := explorer.tables[table].columns[i].datatype
 		colname := explorer.tables[table].columns[i].name
-		if row[i] != nil {
+		if row[i] == nil {
+			cols[colname] = nil
+		} else {
 			if datatype == "int" {
 				cols[colname] = row[i].(int64)
 			} else if datatype == "float" {
@@ -248,7 +300,6 @@ func (explorer DbExplorer) readColumns(table string, row []interface{}) map[stri
 				cols[colname] = string(row[i].([]uint8))
 			}
 		}
-
 	}
 
 	return cols
