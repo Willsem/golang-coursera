@@ -248,6 +248,7 @@ func (explorer DbExplorer) putRowToTable(w http.ResponseWriter, r *http.Request)
 	)
 	if err != nil {
 		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
+		fmt.Println(string(errorMessage))
 		http.Error(w, string(errorMessage), http.StatusInternalServerError)
 		return
 	}
@@ -261,7 +262,7 @@ func (explorer DbExplorer) putRowToTable(w http.ResponseWriter, r *http.Request)
 
 	response := Response{
 		Response: map[string]interface{}{
-			"id": id,
+			explorer.tables[table].idName: id,
 		},
 	}
 	data, _ := json.Marshal(response)
@@ -449,6 +450,33 @@ func (explorer DbExplorer) parseBody(r *http.Request) (map[string]interface{}, e
 	if r.Method == "POST" {
 		if _, ok := parsedBody[explorer.tables[table].idName]; ok {
 			return nil, fmt.Errorf("field " + explorer.tables[table].idName + " have invalid type")
+		}
+	}
+
+	if r.Method == "PUT" {
+		for _, col := range fields {
+			was := false
+			for keys := range parsedBody {
+				if col.name == keys {
+					was = true
+					break
+				}
+			}
+
+			if !was {
+				if col.nullable {
+					parsedBody[col.name] = nil
+				} else {
+					switch col.datatype {
+					case "int":
+						parsedBody[col.name] = 0
+					case "float":
+						parsedBody[col.name] = 0.0
+					case "string":
+						parsedBody[col.name] = ""
+					}
+				}
+			}
 		}
 	}
 
