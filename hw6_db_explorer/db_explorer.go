@@ -237,7 +237,6 @@ func (explorer DbExplorer) putRowToTable(w http.ResponseWriter, r *http.Request)
 		columns += ", `" + key + "`"
 		values = append(values, value)
 		placeholders += "?, "
-
 	}
 
 	columns = columns[2:]
@@ -271,11 +270,47 @@ func (explorer DbExplorer) putRowToTable(w http.ResponseWriter, r *http.Request)
 
 // POST /$table/$id
 func (explorer DbExplorer) postRowInTable(w http.ResponseWriter, r *http.Request) {
-	_, err := explorer.parseBody(r)
+	body, err := explorer.parseBody(r)
 	if err != nil {
 		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
 		http.Error(w, string(errorMessage), http.StatusBadRequest)
+		return
 	}
+
+	params := strings.Split(r.URL.Path, "/")
+	table := params[1]
+	id := params[2]
+	keys := ""
+	values := make([]interface{}, 0)
+	for key, value := range body {
+		keys += "`" + key + "` = ? "
+		values = append(values, value)
+	}
+
+	result, err := explorer.db.Exec(
+		"update "+table+" set "+keys+" where "+explorer.tables[table].idName+" = "+id,
+		values...,
+	)
+	if err != nil {
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
+		http.Error(w, string(errorMessage), http.StatusInternalServerError)
+		return
+	}
+
+	updated, err := result.RowsAffected()
+	if err != nil {
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
+		http.Error(w, string(errorMessage), http.StatusInternalServerError)
+		return
+	}
+
+	response := Response{
+		Response: map[string]interface{}{
+			"updated": updated,
+		},
+	}
+	data, _ := json.Marshal(response)
+	w.Write(data)
 }
 
 // DELETE /$table/$id
