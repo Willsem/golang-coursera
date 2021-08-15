@@ -153,17 +153,8 @@ func (explorer DbExplorer) getTables(w http.ResponseWriter, r *http.Request) {
 func (explorer DbExplorer) getRowsFromTable(w http.ResponseWriter, r *http.Request) {
 	table := strings.Split(r.URL.Path, "/")[1]
 
-	limit, err := getIntQueryParam(r, "limit", DEFAULT_LIMIT)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	offset, err := getIntQueryParam(r, "offset", DEFAULT_OFFSET)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	limit := getIntQueryParam(r, "limit", DEFAULT_LIMIT)
+	offset := getIntQueryParam(r, "offset", DEFAULT_OFFSET)
 
 	rows, err := explorer.db.Query("select * from "+table+" limit ? offset ?", limit, offset)
 	if err != nil {
@@ -348,16 +339,19 @@ func (explorer DbExplorer) deleteRowFromTable(w http.ResponseWriter, r *http.Req
 	w.Write(data)
 }
 
-func getIntQueryParam(r *http.Request, param string, defaultValue int) (result int, err error) {
+func getIntQueryParam(r *http.Request, param string, defaultValue int) int {
 	value := r.URL.Query().Get(param)
 
 	if value == "" {
-		result = defaultValue
+		return defaultValue
 	} else {
-		result, err = strconv.Atoi(value)
+		result, err := strconv.Atoi(value)
+		if err != nil {
+			return defaultValue
+		} else {
+			return result
+		}
 	}
-
-	return
 }
 
 func (explorer DbExplorer) getRowsData(table string, rows *sql.Rows, onlyOne bool) interface{} {
