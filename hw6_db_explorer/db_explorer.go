@@ -434,7 +434,11 @@ func (explorer DbExplorer) parseBody(r *http.Request) (map[string]interface{}, e
 				}
 
 				if !ok {
-					return nil, fmt.Errorf("field " + key + " have invalid type")
+					if value == nil && col.nullable {
+						parsedBody[key] = nil
+					} else {
+						return nil, fmt.Errorf("field " + key + " have invalid type")
+					}
 				}
 			}
 		}
