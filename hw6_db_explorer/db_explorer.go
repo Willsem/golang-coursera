@@ -283,12 +283,14 @@ func (explorer DbExplorer) postRowInTable(w http.ResponseWriter, r *http.Request
 	keys := ""
 	values := make([]interface{}, 0)
 	for key, value := range body {
-		keys += "`" + key + "` = ? "
+		keys += "`" + key + "` = ? ,"
 		values = append(values, value)
 	}
 
+	keys = keys[:len(keys)-1]
+
 	result, err := explorer.db.Exec(
-		"update "+table+" set "+keys+" where "+explorer.tables[table].idName+" = "+id,
+		"update "+table+" set "+keys+"where "+explorer.tables[table].idName+" = "+id,
 		values...,
 	)
 	if err != nil {
