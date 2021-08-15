@@ -151,7 +151,7 @@ func (explorer DbExplorer) getTables(w http.ResponseWriter, r *http.Request) {
 
 // GET /$table?limit=5&offset=7
 func (explorer DbExplorer) getRowsFromTable(w http.ResponseWriter, r *http.Request) {
-	table := r.URL.Path[1:]
+	table := strings.Split(r.URL.Path, "/")[1]
 
 	limit, err := getIntQueryParam(r, "limit", DEFAULT_LIMIT)
 	if err != nil {
@@ -226,12 +226,52 @@ func (explorer DbExplorer) putRowToTable(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
 		http.Error(w, string(errorMessage), http.StatusBadRequest)
+		return
 	}
+
+	table := strings.Split(r.URL.Path, "/")[1]
+	columns := ""
+	values := make([]interface{}, 0)
+	placeholders := ""
+	for key, value := range body {
+		columns += ", `" + key + "`"
+		values = append(values, value)
+		placeholders += "?, "
+
+	}
+
+	columns = columns[2:]
+	placeholders = placeholders[:len(placeholders)-2]
+
+	result, err := explorer.db.Exec(
+		"insert into "+table+" ("+columns+") values ("+placeholders+")",
+		values...,
+	)
+	if err != nil {
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
+		http.Error(w, string(errorMessage), http.StatusInternalServerError)
+		return
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
+		http.Error(w, string(errorMessage), http.StatusInternalServerError)
+		return
+	}
+
+	response := Response{
+		Response: map[string]interface{}{
+			"id": id,
+		},
+	}
+	data, _ := json.Marshal(response)
+	w.Write(data)
 }
 
 // POST /$table/$id
 func (explorer DbExplorer) postRowInTable(w http.ResponseWriter, r *http.Request) {
-	body, err := explorer.parseBody(r)
+	_, err := explorer.parseBody(r)
 	if err != nil {
 		errorMessage, _ := json.Marshal(ErrorResponse{Error: err.Error()})
 		http.Error(w, string(errorMessage), http.StatusBadRequest)
@@ -339,6 +379,11 @@ func (explorer DbExplorer) parseBody(r *http.Request) (map[string]interface{}, e
 
 	table := strings.Split(r.URL.Path, "/")[1]
 	fields := explorer.tables[table].columns
+	parsedBody := make(map[string]interface{})
+
+	if r.Method == "PUT" {
+		delete(body, explorer.tables[table].idName)
+	}
 
 	for key, value := range body {
 		for _, col := range fields {
@@ -346,11 +391,11 @@ func (explorer DbExplorer) parseBody(r *http.Request) (map[string]interface{}, e
 				var ok bool
 				switch col.datatype {
 				case "int":
-					body[key], ok = value.(int64)
+					parsedBody[key], ok = value.(int64)
 				case "float":
-					body[key], ok = value.(float64)
+					parsedBody[key], ok = value.(float64)
 				case "string":
-					body[key], ok = value.([]uint8)
+					parsedBody[key], ok = value.(string)
 				}
 
 				if !ok {
@@ -361,16 +406,12 @@ func (explorer DbExplorer) parseBody(r *http.Request) (map[string]interface{}, e
 	}
 
 	if r.Method == "POST" {
-		if _, ok := body[explorer.tables[table].idName]; ok {
+		if _, ok := parsedBody[explorer.tables[table].idName]; ok {
 			return nil, fmt.Errorf("field " + explorer.tables[table].idName + " have invalid type")
 		}
 	}
 
-	if r.Method == "PUT" {
-		delete(body, explorer.tables[table].idName)
-	}
-
-	return body, nil
+	return parsedBody, nil
 }
 
 func getBodyFromRequest(r *http.Request) (map[string]interface{}, error) {
