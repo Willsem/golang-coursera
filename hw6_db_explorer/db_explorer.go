@@ -91,7 +91,9 @@ func NewDbExplorer(db *sql.DB) (DbExplorer, error) {
 				column.nullable = false
 			}
 
-			if strings.Contains(column.datatype, "varchar") || column.datatype == "text" {
+			if strings.Contains(column.datatype, "int") {
+				column.datatype = "int"
+			} else {
 				column.datatype = "string"
 			}
 
